@@ -1,0 +1,6 @@
+{
+  "name": "Tá Cuiar Padel Team",
+  "description": "App oficial da equipa Tá Cuiar Padel Team. Organiza as tuas inscrições para a Missa de Sábado, consulta as regras e efetua os pagamentos de forma simples.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
