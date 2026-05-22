@@ -78,10 +78,10 @@ class PadelViewModel(application: Application) : AndroidViewModel(application) {
         
         // 2. Form active masculine pairs for courts 1 to 4 (each court gets 2 pairs -> up to 8 masculine pairs / 16 players)
         val numMascPairs = minOf(8, unusedMales.size / 2)
-        val activeMalesForPairs = unusedMales.take(numMascPairs * 2)
-        val mascPairsList = activeMalesForPairs.chunked(2).mapNotNull {
-            if (it.size == 2) Pair(it[0], it[1]) else null
-        }.toMutableList()
+        val mascPairsList = mutableListOf<Pair<Player, Player>>()
+        for (i in 0 until numMascPairs * 2 step 2) {
+            mascPairsList.add(Pair(unusedMales[i], unusedMales[i + 1]))
+        }
         
         val leftoverMales = unusedMales.drop(numMascPairs * 2)
         val leftoverFemales = unusedFemales
@@ -96,12 +96,12 @@ class PadelViewModel(application: Application) : AndroidViewModel(application) {
         val finalLeftoverMales = leftoverMales.drop(numExtraMixed)
 
         // 4. Form extra masculine pairs (for waiting list) from any leftover males
-        val extraMascPairs = finalLeftoverMales.chunked(2).mapNotNull {
-            if (it.size == 2) Pair(it[0], it[1]) else null
+        val extraMascPairsCount = finalLeftoverMales.size / 2
+        for (i in 0 until extraMascPairsCount * 2 step 2) {
+            mascPairsList.add(Pair(finalLeftoverMales[i], finalLeftoverMales[i + 1]))
         }
-        mascPairsList.addAll(extraMascPairs)
         
-        val remainingLeftoverMales = finalLeftoverMales.drop(extraMascPairs.size * 2)
+        val remainingLeftoverMales = finalLeftoverMales.drop(extraMascPairsCount * 2)
 
         // Assign active extras (suplentes)
         mixedPairs.value = mixedList
