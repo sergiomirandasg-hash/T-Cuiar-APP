@@ -17,6 +17,9 @@ interface PlayerDao {
     @Query("DELETE FROM players WHERE id = :id")
     suspend fun deletePlayer(id: Int)
 
+    @Query("UPDATE players SET fixedPartnerId = :partnerId WHERE id = :id")
+    suspend fun updatePartnerId(id: Int, partnerId: Int?)
+
     @Query("DELETE FROM players")
     suspend fun clearPlayers()
 }

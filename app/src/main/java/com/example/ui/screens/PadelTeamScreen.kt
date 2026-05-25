@@ -770,6 +770,7 @@ fun InscriptionsTab(
     var playerName by remember { mutableStateOf("") }
     var playerCategory by remember { mutableStateOf("Masculino") }
     val context = LocalContext.current
+    var pairingPlayer by remember { mutableStateOf<Player?>(null) }
 
     val isQueueFull = players.size >= 32
 
@@ -1013,11 +1014,20 @@ fun InscriptionsTab(
                 }
 
                 itemsIndexed(confirmedPlayers) { idx, player ->
+                    val partnerName = player.fixedPartnerId?.let { partnerId ->
+                        players.find { it.id == partnerId }?.name
+                    }
                     PlayerRowItem(
                         numberDisplay = "${idx + 1}",
                         player = player,
                         isReserve = false,
+                        partnerName = partnerName,
                         onCancelClick = { onRemovePlayerTriggered(player) },
+                        onPairClick = { pairingPlayer = player },
+                        onUnpairClick = { 
+                            viewModel.clearFixedMixedPartner(player.id, player.fixedPartnerId)
+                            Toast.makeText(context, "Dupla separada com sucesso!", Toast.LENGTH_SHORT).show()
+                        },
                         modifier = Modifier.testTag("confirmed_item_${idx}")
                     )
                 }
@@ -1035,17 +1045,116 @@ fun InscriptionsTab(
                     }
 
                     itemsIndexed(reservePlayers) { idx, player ->
+                        val partnerName = player.fixedPartnerId?.let { partnerId ->
+                            players.find { it.id == partnerId }?.name
+                        }
                         PlayerRowItem(
                             numberDisplay = "R${idx + 1}",
                             player = player,
                             isReserve = true,
+                            partnerName = partnerName,
                             onCancelClick = { onRemovePlayerTriggered(player) },
+                            onPairClick = { pairingPlayer = player },
+                            onUnpairClick = { 
+                                viewModel.clearFixedMixedPartner(player.id, player.fixedPartnerId)
+                                Toast.makeText(context, "Dupla separada com sucesso!", Toast.LENGTH_SHORT).show()
+                            },
                             modifier = Modifier.testTag("reserve_item_${idx}")
                         )
                     }
                 }
             }
         }
+    }
+
+    if (pairingPlayer != null) {
+        val currentPairing = pairingPlayer!!
+        val oppositeCategory = if (currentPairing.category == "Masculino") "Feminino" else "Masculino"
+        // Candidates must be of the opposite category and not already paired
+        val candidates = players.filter { 
+            it.category == oppositeCategory && 
+            it.fixedPartnerId == null && 
+            it.id != currentPairing.id 
+        }
+
+        AlertDialog(
+            onDismissRequest = { pairingPlayer = null },
+            title = {
+                Text(
+                    text = "Criar Dupla Mista Fixa",
+                    style = Typography.titleLarge,
+                    color = PadelLime,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Selecione o parceiro para ${currentPairing.name} ($oppositeCategory) para formar uma dupla mista fixa:",
+                        style = Typography.bodyMedium,
+                        color = WarmWhite
+                    )
+
+                    if (candidates.isEmpty()) {
+                        Text(
+                            text = "Não há atletas de $oppositeCategory disponíveis ou sem dupla no momento.",
+                            style = Typography.bodyMedium,
+                            color = SoftGray,
+                            fontWeight = FontWeight.Medium
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 240.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(candidates.size) { index ->
+                                val candidate = candidates[index]
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(DarkCardSurface)
+                                        .clickable {
+                                            viewModel.setFixedMixedPartner(currentPairing.id, candidate.id)
+                                            Toast.makeText(context, "${currentPairing.name} e ${candidate.name} formaram uma dupla!", Toast.LENGTH_SHORT).show()
+                                            pairingPlayer = null
+                                        }
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = candidate.name,
+                                        style = Typography.bodyLarge,
+                                        color = WarmWhite,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        tint = PadelLime,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { pairingPlayer = null }) {
+                    Text("Cancelar", color = SoftGray)
+                }
+            },
+            containerColor = DarkSurface,
+            shape = RoundedCornerShape(16.dp)
+        )
     }
 }
 
@@ -1054,7 +1163,10 @@ fun PlayerRowItem(
     numberDisplay: String,
     player: Player,
     isReserve: Boolean,
+    partnerName: String?,
     onCancelClick: () -> Unit,
+    onPairClick: () -> Unit,
+    onUnpairClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -1070,6 +1182,7 @@ fun PlayerRowItem(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Row(
+                modifier = Modifier.weight(1f),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -1089,7 +1202,10 @@ fun PlayerRowItem(
                     )
                 }
 
-                Column(verticalArrangement = Arrangement.Center) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.Center
+                ) {
                     Text(
                         text = player.name,
                         style = Typography.bodyLarge,
@@ -1097,29 +1213,91 @@ fun PlayerRowItem(
                         fontWeight = FontWeight.SemiBold
                     )
                     Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = if (player.category == "Feminino") "Feminino ♀" else "Masculino ♂",
-                        style = Typography.bodySmall,
-                        color = if (player.category == "Feminino") PadelLime else SoftGray,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = if (player.category == "Feminino") "Feminino ♀" else "Masculino ♂",
+                            style = Typography.bodySmall,
+                            color = if (player.category == "Feminino") PadelLime else SoftGray,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (partnerName != null) {
+                            Text(
+                                text = "•",
+                                style = Typography.bodySmall,
+                                color = SoftGray
+                            )
+                            Icon(
+                                imageVector = Icons.Default.Favorite,
+                                contentDescription = null,
+                                tint = CoralFine,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Text(
+                                text = "Dupla com: $partnerName",
+                                style = Typography.bodySmall,
+                                color = ElectricTeal,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                 }
             }
 
-            // Cancellation cross Button
-            IconButton(
-                onClick = onCancelClick,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(DarkCardSurface)
-                    .size(32.dp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Cancelar inscrição",
-                    modifier = Modifier.size(16.dp),
-                    tint = CoralFine
-                )
+                // Pairing action button
+                if (player.fixedPartnerId != null) {
+                    IconButton(
+                        onClick = onUnpairClick,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(DarkCardSurface)
+                            .size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LinkOff,
+                            contentDescription = "Separar dupla",
+                            modifier = Modifier.size(16.dp),
+                            tint = AlertGold
+                        )
+                    }
+                } else {
+                    IconButton(
+                        onClick = onPairClick,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(DarkCardSurface)
+                            .size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Link,
+                            contentDescription = "Criar dupla",
+                            modifier = Modifier.size(16.dp),
+                            tint = PadelLime
+                        )
+                    }
+                }
+
+                // Cancellation cross Button
+                IconButton(
+                    onClick = onCancelClick,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(DarkCardSurface)
+                        .size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Cancelar inscrição",
+                        modifier = Modifier.size(16.dp),
+                        tint = CoralFine
+                    )
+                }
             }
         }
     }
@@ -1304,22 +1482,7 @@ fun PaymentsTab() {
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(ElectricTeal)
-                        )
-                        Text(
-                            text = "OFFICIAL BANCO EMISSOR",
-                            style = Typography.labelMedium,
-                            color = ElectricTeal
-                        )
-                    }
+
 
                     Text(
                         text = "STANDARD BANK",
@@ -1408,19 +1571,14 @@ fun PaymentsTab() {
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.weight(1f)
                     ) {
-                        Box(
+                        Image(
+                            painter = painterResource(id = R.drawable.img_multicaixa_express),
+                            contentDescription = "Multicaixa Express Logo",
                             modifier = Modifier
                                 .size(48.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(ElectricTeal.copy(alpha = 0.15f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = null,
-                                tint = ElectricTeal
-                            )
-                        }
+                                .clip(RoundedCornerShape(10.dp)),
+                            contentScale = ContentScale.Crop
+                        )
 
                         Column {
                             Text(

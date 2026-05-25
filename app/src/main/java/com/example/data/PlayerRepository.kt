@@ -13,6 +13,10 @@ class PlayerRepository(private val playerDao: PlayerDao) {
         playerDao.deletePlayer(id)
     }
 
+    suspend fun updatePartnerId(id: Int, partnerId: Int?) {
+        playerDao.updatePartnerId(id, partnerId)
+    }
+
     suspend fun clear() {
         playerDao.clearPlayers()
     }

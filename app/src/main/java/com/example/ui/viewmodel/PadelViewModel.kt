@@ -63,51 +63,133 @@ class PadelViewModel(application: Application) : AndroidViewModel(application) {
     fun generatePairings(playersList: List<Player>) {
         val activePlayers = playersList.take(32) // Top 32 active players only
         
-        val femaleList = activePlayers.filter { it.category == "Feminino" }.shuffled()
-        val maleList = activePlayers.filter { it.category == "Masculino" }.shuffled()
-
-        // 1. Form active mixed pairs for courts 5 to 8 (each court gets 2 pairs -> up to 8 mixed pairs)
-        val numMixedPairs = minOf(8, femaleList.size, maleList.size)
+        // --- 1. Identify Fixed Mixed Pairs ---
+        // A valid fixed mixed pair is one where player A and player B are both present in activePlayers, 
+        // with opposite categories, and their fixedPartnerId point to each other's ids.
+        val activePlayersMap = activePlayers.associateBy { it.id }
+        val fixedPairsSet = mutableSetOf<Int>()
+        val fixedMixedList = mutableListOf<Pair<Player, Player>>()
+        
+        for (player in activePlayers) {
+            if (player.id in fixedPairsSet) continue
+            val partnerId = player.fixedPartnerId
+            if (partnerId != null && partnerId in activePlayersMap && partnerId !in fixedPairsSet) {
+                val partner = activePlayersMap[partnerId]!!
+                // Check opposite categories (one Masculino, one Feminino)
+                if (player.category != partner.category) {
+                    // Double check reciprocal linking
+                    if (partner.fixedPartnerId == player.id) {
+                        fixedPairsSet.add(player.id)
+                        fixedPairsSet.add(partner.id)
+                        // Standardize: male first, female second, or vice versa. 
+                        // Let's keep first as Masculino, second as Feminino
+                        if (player.category == "Masculino") {
+                            fixedMixedList.add(Pair(player, partner))
+                        } else {
+                            fixedMixedList.add(Pair(partner, player))
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Remaining players that are NOT in a fixed mixed pair
+        val remainingActive = activePlayers.filter { it.id !in fixedPairsSet }
+        
+        // Separate by gender and shuffle
+        val remainingFemales = remainingActive.filter { it.category == "Feminino" }.shuffled().toMutableList()
+        val remainingMales = remainingActive.filter { it.category == "Masculino" }.shuffled().toMutableList()
+        
+        // --- 2. Create All Mixed Pairs ---
         val mixedList = mutableListOf<Pair<Player, Player>>()
-        for (i in 0 until numMixedPairs) {
-            mixedList.add(Pair(maleList[i], femaleList[i]))
+        // Add fixed mixed pairs first
+        mixedList.addAll(fixedMixedList)
+        
+        // Form random mixed pairs from unpaired males and females
+        val randomMixedCount = minOf(remainingFemales.size, remainingMales.size)
+        for (i in 0 until randomMixedCount) {
+            val male = remainingMales.removeAt(0)
+            val female = remainingFemales.removeAt(0)
+            mixedList.add(Pair(male, female))
         }
         
-        val unusedFemales = femaleList.drop(numMixedPairs)
-        val unusedMales = maleList.drop(numMixedPairs)
-        
-        // 2. Form active masculine pairs for courts 1 to 4 (each court gets 2 pairs -> up to 8 masculine pairs / 16 players)
-        val numMascPairs = minOf(8, unusedMales.size / 2)
-        val mascPairsList = mutableListOf<Pair<Player, Player>>()
-        for (i in 0 until numMascPairs * 2 step 2) {
-            mascPairsList.add(Pair(unusedMales[i], unusedMales[i + 1]))
+        // --- 3. Create Same-Sex Pairs from leftover players ---
+        // Leftover males form male-male pairs
+        val leftoverMascPairs = mutableListOf<Pair<Player, Player>>()
+        while (remainingMales.size >= 2) {
+            leftoverMascPairs.add(Pair(remainingMales.removeAt(0), remainingMales.removeAt(0)))
         }
         
-        val leftoverMales = unusedMales.drop(numMascPairs * 2)
-        val leftoverFemales = unusedFemales
+        // Leftover females form female-female pairs that can be redistributed 
+        // onto the Masculino draw (Courts 1-4) or fill remaining Misto slots.
+        val leftoverFemPairs = mutableListOf<Pair<Player, Player>>()
+        while (remainingFemales.size >= 2) {
+            leftoverFemPairs.add(Pair(remainingFemales.removeAt(0), remainingFemales.removeAt(0)))
+        }
+        
+        // Individual single leftovers: at most 1 male and/or 1 female
+        val singleLeftoverFemales = remainingFemales.toList()
+        val singleLeftoverMales = remainingMales.toList()
+        
+        // --- 4. Distribute to Courts 5-8 (Misto Draw: max 8 pairs) ---
+        // Standard mixed pairs go to Courts 5-8 first
+        val activeMisto = mutableListOf<Pair<Player, Player>>()
+        val waitingMisto = mutableListOf<Pair<Player, Player>>()
+        
+        val totalMixedPairsCount = mixedList.size
+        if (totalMixedPairsCount >= 8) {
+            activeMisto.addAll(mixedList.take(8))
+            waitingMisto.addAll(mixedList.drop(8))
+        } else {
+            activeMisto.addAll(mixedList)
+            // Not enough mixed pairs to fill the 8 slots of Courts 5-8.
+            // Fill leftover slots with male pairs, then female pairs.
+            while (activeMisto.size < 8 && leftoverMascPairs.isNotEmpty()) {
+                activeMisto.add(leftoverMascPairs.removeAt(0))
+            }
+            while (activeMisto.size < 8 && leftoverFemPairs.isNotEmpty()) {
+                activeMisto.add(leftoverFemPairs.removeAt(0))
+            }
+        }
+        
+        // --- 5. Distribute to Courts 1-4 (Masculino Draw: max 8 pairs) ---
+        // Show male pairs first, then female pairs (redistribution), then extra mixed pairs
+        val mascDrawPairs = mutableListOf<Pair<Player, Player>>()
+        mascDrawPairs.addAll(leftoverMascPairs)
+        mascDrawPairs.addAll(leftoverFemPairs)
+        
+        // If there's still room in Courts 1-4, pull in waiting mixed pairs!
+        while (mascDrawPairs.size < 8 && waitingMisto.isNotEmpty()) {
+            mascDrawPairs.add(waitingMisto.removeAt(0))
+        }
+        
+        val activeMasc = mascDrawPairs.take(8)
+        val waitingMasc = mascDrawPairs.drop(8)
+        
+        // --- 6. Set flow outputs to UI ---
+        mixedPairs.value = activeMisto + waitingMisto
+        masculinePairs.value = activeMasc + waitingMasc
+        
+        // Individual waiting list extras
+        val allSingleLeftovers = singleLeftoverFemales + singleLeftoverMales
+        mixedExtra.value = allSingleLeftovers.firstOrNull()
+        masculineExtra.value = if (allSingleLeftovers.size > 1) allSingleLeftovers[1] else null
+    }
 
-        // 3. Form extra mixed pairs (for waiting list) from leftover males and females
-        val numExtraMixed = minOf(leftoverFemales.size, leftoverMales.size)
-        for (i in 0 until numExtraMixed) {
-            mixedList.add(Pair(leftoverMales[i], leftoverFemales[i]))
+    fun setFixedMixedPartner(player1Id: Int, player2Id: Int) {
+        viewModelScope.launch {
+            repository.updatePartnerId(player1Id, player2Id)
+            repository.updatePartnerId(player2Id, player1Id)
         }
-        
-        val finalLeftoverFemales = leftoverFemales.drop(numExtraMixed)
-        val finalLeftoverMales = leftoverMales.drop(numExtraMixed)
+    }
 
-        // 4. Form extra masculine pairs (for waiting list) from any leftover males
-        val extraMascPairsCount = finalLeftoverMales.size / 2
-        for (i in 0 until extraMascPairsCount * 2 step 2) {
-            mascPairsList.add(Pair(finalLeftoverMales[i], finalLeftoverMales[i + 1]))
+    fun clearFixedMixedPartner(player1Id: Int, player2Id: Int?) {
+        viewModelScope.launch {
+            repository.updatePartnerId(player1Id, null)
+            if (player2Id != null) {
+                repository.updatePartnerId(player2Id, null)
+            }
         }
-        
-        val remainingLeftoverMales = finalLeftoverMales.drop(extraMascPairsCount * 2)
-
-        // Assign active extras (suplentes)
-        mixedPairs.value = mixedList
-        mixedExtra.value = finalLeftoverFemales.firstOrNull()
-        masculinePairs.value = mascPairsList
-        masculineExtra.value = remainingLeftoverMales.firstOrNull()
     }
 
     fun swapPlayers(player1: Player, player2: Player) {
@@ -256,6 +338,10 @@ class PadelViewModel(application: Application) : AndroidViewModel(application) {
 
     fun removePlayer(id: Int) {
         viewModelScope.launch {
+            val player = allPlayers.value.find { it.id == id }
+            if (player?.fixedPartnerId != null) {
+                repository.updatePartnerId(player.fixedPartnerId, null)
+            }
             repository.delete(id)
         }
     }
